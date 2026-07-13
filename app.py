@@ -300,6 +300,45 @@ def to_excel_bytes(df):
     return buf.getvalue()
 
 
+def construir_exportacion_limpia(df, resueltos_ids):
+    col_nombre = next((c for c in df.columns if "nombre" in norm(c)), None)
+    col_rut = next((c for c in df.columns if "rut" in norm(c)), None)
+    col_cargo = next((c for c in df.columns if "cargo" in norm(c)), None)
+    col_fecha = next((c for c in df.columns if norm(c) == "fecha de respuesta"), None)
+    col_area = next((c for c in df.columns if norm(c) == "area"), None)
+    col_subarea = next((c for c in df.columns if norm(c) == "sub area"), None)
+    col_zona = next((c for c in df.columns if norm(c) == "zona"), None)
+    col_tipo = next((c for c in df.columns if "tipo" in norm(c) and "coment" in norm(c)), None)
+    col_comentario = next((c for c in df.columns if norm(c) == "comentario"), None)
+    if col_comentario is None:
+        col_comentario = next(
+            (c for c in df.columns if "coment" in norm(c) and "tipo" not in norm(c)), None
+        )
+
+    columnas_esperadas = [
+        ("Nombre", col_nombre), ("Rut", col_rut), ("Cargo", col_cargo),
+        ("Fecha de respuesta", col_fecha), ("Área", col_area), ("Sub-área", col_subarea),
+        ("Zona", col_zona), ("Tipo de comentario", col_tipo), ("Comentario", col_comentario),
+    ]
+    faltantes = [nombre for nombre, col in columnas_esperadas if col is None]
+
+    out = pd.DataFrame({
+        "Nombre": df[col_nombre] if col_nombre else "",
+        "Rut": df[col_rut] if col_rut else "",
+        "Cargo": df[col_cargo] if col_cargo else "",
+        "Fecha de comentario": df[col_fecha] if col_fecha else "",
+        "Área": df[col_area] if col_area else "",
+        "Sucursal": df[col_subarea] if col_subarea else "",
+        "Zona": df[col_zona] if col_zona else "",
+        "Tipo de comentario": df[col_tipo] if col_tipo else "",
+        "Comentario": df[col_comentario].apply(limpiar_texto) if col_comentario else "",
+        "Prioridad": df["Prioridad"],
+        "Responsable": df["Derivar a"],
+        "Checklist": df["id_caso"].apply(lambda i: "Sí" if i in resueltos_ids else "No"),
+    })
+    return out, faltantes
+
+
 # =========================================================
 # Interfaz
 # =========================================================
@@ -520,11 +559,28 @@ with tab_buzon:
                         st.write(f"**Fecha del comentario:** {row[col_fecha] if col_fecha else '—'}")
 
         st.divider()
-        st.download_button(
-            "⬇️ Descargar resultado filtrado (Excel)",
-            data=to_excel_bytes(df_view),
-            file_name="buzon_clasificado.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+
+        df_export_limpio, faltantes = construir_exportacion_limpia(df_view, st.session_state.resueltos)
+        if faltantes:
+            st.caption(
+                f"⚠️ No se encontraron estas columnas en el archivo original (quedarán vacías): "
+                f"{', '.join(faltantes)}"
+            )
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                "📋 Descargar resumen para compartir (Excel)",
+                data=to_excel_bytes(df_export_limpio),
+                file_name="buzon_resumen_compartir.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        with col_dl2:
+            st.download_button(
+                "⬇️ Descargar resultado completo (Excel)",
+                data=to_excel_bytes(df_view),
+                file_name="buzon_clasificado.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
     else:
         st.info("Sube un Excel del buzón para ver la clasificación.")
