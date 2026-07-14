@@ -330,6 +330,8 @@ def construir_exportacion_limpia(df, resueltos_ids):
         "Área": df[col_area] if col_area else "",
         "Sucursal": df[col_subarea] if col_subarea else "",
         "Zona": df[col_zona] if col_zona else "",
+        "Zona_Homologada": df["Zona_Homologada"] if "Zona_Homologada" in df.columns else "",
+        "Macro_Zona": df["Macro_Zona"] if "Macro_Zona" in df.columns else "",
         "Tipo de comentario": df[col_tipo] if col_tipo else "",
         "Comentario": df[col_comentario].apply(limpiar_texto) if col_comentario else "",
         "Prioridad": df["Prioridad"],
@@ -398,6 +400,22 @@ with tab_areas:
             columns=["Categoría", "N° palabras clave"],
         )
         st.dataframe(resumen, use_container_width=True, hide_index=True)
+
+        filas_export = [
+            (cat, palabra) for cat, kws in st.session_state.cats.items() for palabra in kws
+        ]
+        df_kw_export = pd.DataFrame(filas_export, columns=["Categoria", "Palabra_clave"])
+        st.download_button(
+            "⬇️ Descargar palabras clave actuales (Excel)",
+            data=to_excel_bytes(df_kw_export),
+            file_name="palabras_clave_actuales.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        st.caption(
+            "Descarga esto, agrégale nuevas palabras en la hoja 'Resultado', y vuelve a subirlo "
+            "arriba (con el nombre de hoja renombrado a algo que contenga 'palabra', o dentro de "
+            "tu Excel de 2 hojas junto con 'Zonas') para actualizar las reglas."
+        )
     else:
         st.info("Aún no se ha cargado un archivo de reglas — se están usando las reglas por defecto internas.")
 
@@ -444,8 +462,21 @@ with tab_buzon:
         df_resultado = st.session_state.casos
 
         # detección flexible de columnas de contexto
-        col_zona = next((c for c in df_resultado.columns if norm(c) == "zona"), None)
-        col_sucursal = next((c for c in df_resultado.columns if "sucursal" in norm(c)), None)
+        # Zona -> preferimos Macro_Zona (homologada) si existe con datos; si no, la columna cruda "Zona"
+        col_zona_raw = next((c for c in df_resultado.columns if norm(c) == "zona"), None)
+        if "Macro_Zona" in df_resultado.columns and df_resultado["Macro_Zona"].notna().any():
+            col_zona = "Macro_Zona"
+        else:
+            col_zona = col_zona_raw
+
+        # Sucursal -> preferimos Zona_Homologada si existe con datos; si no, "Sub-área" (nombre real en tu Excel)
+        col_sucursal_raw = next((c for c in df_resultado.columns if norm(c) == "sub area"), None)
+        if col_sucursal_raw is None:
+            col_sucursal_raw = next((c for c in df_resultado.columns if "sucursal" in norm(c)), None)
+        if "Zona_Homologada" in df_resultado.columns and df_resultado["Zona_Homologada"].notna().any():
+            col_sucursal = "Zona_Homologada"
+        else:
+            col_sucursal = col_sucursal_raw
         col_nombre = next((c for c in df_resultado.columns if "nombre" in norm(c)), None)
         col_cargo = next((c for c in df_resultado.columns if "cargo" in norm(c)), None)
         col_rut_ui = next((c for c in df_resultado.columns if "rut" in norm(c)), None)
@@ -458,6 +489,10 @@ with tab_buzon:
                 (c for c in df_resultado.columns if "coment" in norm(c) and "tipo" not in norm(c)), None
             )
         col_tipo_ui = next((c for c in df_resultado.columns if "tipo" in norm(c) and "coment" in norm(c)), None)
+
+        fuente_zona = "Macro-zona homologada" if col_zona == "Macro_Zona" else "columna 'Zona' del Excel original"
+        fuente_sucursal = "Zona homologada" if col_sucursal == "Zona_Homologada" else "columna 'Sub-área' del Excel original"
+        st.caption(f"📍 Zona usa: {fuente_zona}  ·  🏢 Sucursal usa: {fuente_sucursal}")
 
         # ---------- Filtros ----------
         f1, f2, f3, f4, f5 = st.columns(5)
